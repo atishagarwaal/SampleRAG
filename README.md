@@ -109,23 +109,26 @@ SampleRAG/
 
 The RAG pipeline operates in two distinct phases: an **offline ingestion phase** that runs automatically on application startup, and an **online query phase** triggered whenever a client calls `POST /api/chat/ask`.
 
+Each box names the class that performs that step. `Program.cs` starts Phase 1 by calling `SearchIndexService` (field names and the HNSW profile come from `SearchIndexSchema`), then `DocumentIngestionService`, which runs extraction, embedding, and upload for every PDF. Phase 2 starts at `ChatController`, which passes the question to `RAGService`. `FoundryService` supplies the Entra-authenticated clients used by `EmbeddingService` and by the chat call.
+
 ```mermaid
 flowchart LR
-    subgraph Ingestion["Phase 1: Ingestion & Indexing (Startup)"]
-        A["PDF Files\n(Documents/)"] --> B["Extract & Chunk\n(PdfPig: 1000 chars,\n200 overlap)"]
-        B --> C["Generate Embeddings\n(text-embedding-3-small\n1536-dim vectors)"]
-        C --> D["Upload in Batches\n(up to 500/batch)"]
+    subgraph Ingestion["Phase 1: Ingestion (Program.cs → DocumentIngestionService)"]
+        A["PDF Files\n(Documents/)"] --> B["Extract & Chunk\nDocumentService\n(PdfPig: 1000 chars,\n200 overlap)"]
+        B --> C["Generate Embeddings\nEmbeddingService\nvia FoundryService\n(text-embedding-3-small)"]
+        C --> D["Upload in Batches\nVectorSearchService\n(up to 500/batch)"]
     end
 
-    D --> E[("Azure AI Search\n(samplerag-index\nHNSW vector index)")]
+    S["Create Index\nSearchIndexService\n+ SearchIndexSchema"] --> E[("Azure AI Search\n(samplerag-index\nHNSW vector index)")]
+    D --> E
 
-    subgraph Query["Phase 2: Retrieval & Generation (POST /api/chat/ask)"]
-        F["User Question"] --> G["Embed Question\n(text-embedding-3-small)"]
-        G --> H["Vector Search\n(Top 5 kNN chunks)"]
+    subgraph Query["Phase 2: Retrieval & Generation (ChatController → RAGService)"]
+        F["User Question\nChatController"] --> G["Embed Question\nEmbeddingService\nvia FoundryService"]
+        G --> H["Vector Search\nVectorSearchService\n(Top 5 kNN chunks)"]
         E --> H
-        H --> I["Build Grounded Prompt\n(System rules + Context + Question)"]
-        I --> J["Generate Answer\n(gpt-4.1-nano)"]
-        J --> K["JSON Response\n(Answer + Deduplicated Sources)"]
+        H --> I["Build Grounded Prompt\nRAGService"]
+        I --> J["Generate Answer\nFoundryService\n(gpt-4.1-nano)"]
+        J --> K["JSON Response\nRAGService\n(Answer + Deduplicated Sources)"]
     end
 ```
 
