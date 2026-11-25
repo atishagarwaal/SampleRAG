@@ -1,6 +1,10 @@
 @SampleRAG_HostAddress = http://localhost:5021
 
-GET {{SampleRAG_HostAddress}}/weatherforecast/
-Accept: application/json
+POST {{SampleRAG_HostAddress}}/api/chat/ask
+Content-Type: application/json
+
+{
+  "question": "What coffee drinks are on the menu?"
+}
 
 ###
