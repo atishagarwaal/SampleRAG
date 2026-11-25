@@ -16,6 +16,12 @@ builder.Services.AddOptions<AzureSearchOptions>()
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+builder.Services.AddOptions<DocumentsOptions>()
+    .Bind(builder.Configuration.GetSection(DocumentsOptions.SectionName))
+    .ValidateDataAnnotations()
+    .Validate(o => o.ChunkOverlap < o.ChunkSize, "Documents:ChunkOverlap must be less than Documents:ChunkSize.")
+    .ValidateOnStart();
+
 builder.Services.AddSingleton<FoundryService>();
 builder.Services.AddSingleton<EmbeddingService>();
 builder.Services.AddSingleton<VectorSearchService>();

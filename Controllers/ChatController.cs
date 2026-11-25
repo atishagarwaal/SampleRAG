@@ -5,14 +5,14 @@ using SampleRAG.Services;
 namespace SampleRAG.Controllers;
 
 /// <summary>
-/// HTTP entry point for questions answered from the indexed documents.
+/// User-facing controller for asking questions and getting answers from the indexed documents.
 /// </summary>
 [ApiController]
 [Route("api/chat")]
 public class ChatController(RAGService ragService) : ControllerBase
 {
     /// <summary>
-    /// Answers <see cref="ChatRequest.Question"/> and returns the text plus the pages it came from.
+    /// Answers question and returns the text plus the sources it came from.
     /// </summary>
     [HttpPost("ask")]
     public async Task<ActionResult<ChatResponse>> Ask(

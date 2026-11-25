@@ -2,6 +2,7 @@ using Azure;
 using Azure.Search.Documents.Indexes;
 using Azure.Search.Documents.Indexes.Models;
 using Microsoft.Extensions.Options;
+using SampleRAG.Models;
 using SampleRAG.Options;
 
 namespace SampleRAG.Services;

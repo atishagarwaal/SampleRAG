@@ -9,19 +9,19 @@ using SampleRAG.Options;
 namespace SampleRAG.Services;
 
 /// <summary>
-/// Provides authenticated OpenAI-compatible chat and embedding clients backed by Azure AI Foundry.
+/// This is a client for the Foundry service.
 /// </summary>
 public class FoundryService
 {
     private const string AzureAiScope = "https://cognitiveservices.azure.com/.default";
 
     /// <summary>
-    /// Client for generating chat completions.
+    /// Client for asking questions to the chat model.
     /// </summary>
     public ChatClient Chat { get; }
 
     /// <summary>
-    /// Client for generating text embeddings.
+    /// Client for creating embeddings using the embedding model.
     /// </summary>
     public EmbeddingClient Embeddings { get; }
 
@@ -30,6 +30,7 @@ public class FoundryService
     /// </summary>
     public FoundryService(IOptions<FoundryOptions> options)
     {
+        // Get the Foundry endpoint and credentials from the configuration.
         var foundry = options.Value;
 
         // Authenticate with Microsoft Entra ID using the default Azure credential chain
@@ -42,16 +43,17 @@ public class FoundryService
         var credential = new DefaultAzureCredential(credentialOptions);
         var tokenPolicy = new BearerTokenPolicy(credential, AzureAiScope);
 
-        // The endpoint-based OpenAI client is still marked experimental (OPENAI001).
-#pragma warning disable OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        // Create the OpenAI client.
+#pragma warning disable OPENAI001
         var openAIClient = new OpenAIClient(
             authenticationPolicy: tokenPolicy,
             options: new OpenAIClientOptions
             {
                 Endpoint = new Uri(foundry.Endpoint)
             });
-#pragma warning restore OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+#pragma warning restore OPENAI001
 
+        // Create the chat and embedding clients.
         Chat = openAIClient.GetChatClient(foundry.ChatDeployment);
         Embeddings = openAIClient.GetEmbeddingClient(foundry.EmbeddingDeployment);
     }
