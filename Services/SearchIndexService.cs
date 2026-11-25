@@ -10,13 +10,28 @@ namespace SampleRAG.Services;
 /// <summary>
 /// Creates the Azure AI Search index that stores document chunks and their embeddings.
 /// </summary>
-public class SearchIndexService(IOptions<AzureSearchOptions> options)
+public class SearchIndexService
 {
-    private readonly SearchIndexClient _indexClient = new(
-        new Uri(options.Value.Endpoint),
-        new AzureKeyCredential(options.Value.ApiKey));
+    private readonly SearchIndexClient _indexClient;
+    private readonly string _indexName;
 
-    private readonly string _indexName = options.Value.IndexName;
+    /// <summary>
+    /// Initializes the search index client and the index name.
+    /// </summary>
+    /// <param name="options">The options for the Azure AI Search index.</param>
+    public SearchIndexService(IOptions<AzureSearchOptions> options)
+    {
+        // Get the search options from the configuration.
+        var searchIndexOptions = options.Value;
+
+        // Create the search index client.
+        _indexClient = new SearchIndexClient(
+            new Uri(searchIndexOptions.Endpoint),
+            new AzureKeyCredential(searchIndexOptions.ApiKey));
+
+        // Set the index name.
+        _indexName = searchIndexOptions.IndexName;
+    }
 
     /// <summary>
     /// Creates the vector index when it is missing. Existing indexes are left as-is.
@@ -25,6 +40,7 @@ public class SearchIndexService(IOptions<AzureSearchOptions> options)
     {
         try
         {
+            // Check if the index exists.
             await _indexClient.GetIndexAsync(_indexName, cancellationToken);
             return;
         }
@@ -33,6 +49,7 @@ public class SearchIndexService(IOptions<AzureSearchOptions> options)
             // Index does not exist yet.
         }
 
+        // Create the index.
         var index = new SearchIndex(_indexName)
         {
             Fields =

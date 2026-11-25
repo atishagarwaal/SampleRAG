@@ -24,7 +24,7 @@ builder.Services.AddOptions<DocumentsOptions>()
 
 builder.Services.AddSingleton<FoundryService>();
 builder.Services.AddSingleton<EmbeddingService>();
-builder.Services.AddSingleton<VectorSearchService>();
+builder.Services.AddSingleton<AzureSearchService>();
 builder.Services.AddSingleton<SearchIndexService>();
 builder.Services.AddScoped<DocumentService>();
 builder.Services.AddScoped<DocumentIngestionService>();

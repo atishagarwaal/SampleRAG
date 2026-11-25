@@ -8,7 +8,7 @@ namespace SampleRAG.Services;
 /// </summary>
 public class RAGService(
     EmbeddingService embeddingService,
-    VectorSearchService vectorSearchService,
+    AzureSearchService vectorSearchService,
     FoundryService foundryService,
     ILogger<RAGService> logger)
 {

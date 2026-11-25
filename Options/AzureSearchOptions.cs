@@ -17,4 +17,11 @@ public class AzureSearchOptions
 
     [Required]
     public string IndexName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of documents sent to Azure AI Search per indexing request.
+    /// Azure AI Search accepts at most 1,000 documents per batch.
+    /// </summary>
+    [Range(1, 1000)]
+    public int UploadBatchSize { get; set; } = 500;
 }

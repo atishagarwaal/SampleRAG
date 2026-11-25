@@ -10,7 +10,7 @@ namespace SampleRAG.Services;
 public class DocumentIngestionService(
     DocumentService documentService,
     EmbeddingService embeddingService,
-    VectorSearchService vectorSearchService,
+    AzureSearchService vectorSearchService,
     IOptions<DocumentsOptions> documentsOptions,
     ILogger<DocumentIngestionService> logger)
 {
