@@ -17,7 +17,7 @@ On startup, the application automatically creates the Azure AI Search vector ind
    - `DocumentIngestionService` scans the configured `Documents` folder (default: `Documents/`, which includes sample PDFs `Brewing_Guide.pdf` and `Coffee_Menu_and_Prices.pdf`).
    - `DocumentService` extracts text from PDF files using **PdfPig** and splits the content into chunks.
    - `EmbeddingService` (backed by `FoundryService`) generates vector embeddings for each chunk.
-   - `VectorSearchService` batches and uploads the chunks and their vectors to Azure AI Search.
+   - `AzureSearchService` batches and uploads the chunks and their vectors to Azure AI Search.
 
 2. **Question Answering (`POST /api/chat/ask`)**
    - `ChatController` accepts a JSON request containing a `question` and delegates to `RAGService`.
@@ -64,7 +64,7 @@ When the app starts, it creates `samplerag-index` and indexes the PDFs from `Doc
 
 ![Azure AI Search Indexes](docs/images/03-ai-search-indexes.png)
 
-The index stores each chunk's text (`content`), source info (`documentName`, `pageNumber`), and its 1536-dimension vector (`contentVector`) using the `vector-profile` (`hnsw-config`). See [Vector Profile Explained](docs/vector-profile.md) for details on how it works.
+The index stores each chunk's text (`content`), source info (`documentName`, `pageNumber`), and its 1536-dimension vector (`contentVector`) using the `vector-profile` (`hnsw-config`). See [Vector Profile Explained](Documentation/VectorProfile.md) for details on how it works.
 
 ![Index Fields](docs/images/05-index-fields.png)
 
@@ -80,23 +80,29 @@ You can view the indexed PDF chunks in **Search explorer**. When a user asks a q
 SampleRAG/
 ├── Controllers/
 │   └── ChatController.cs          # REST endpoint: POST /api/chat/ask
+├── Documentation/                 # Additional design & concept notes
+│   ├── DuplicateIndexing.md
+│   └── VectorProfile.md
 ├── Documents/                     # Source PDFs ingested at startup
 │   ├── Brewing_Guide.pdf
 │   └── Coffee_Menu_and_Prices.pdf
 ├── Models/
 │   ├── ChatRequest.cs             # Request payload
 │   ├── ChatResponse.cs            # Answer + source references
-│   └── DocumentChunk.cs           # Chunk model (id, documentName, pageNumber, content)
+│   ├── DocumentChunk.cs           # Chunk model (id, documentName, pageNumber, content)
+│   └── SearchIndexSchema.cs       # Azure AI Search index field & vector profile constants
 ├── Options/
+│   ├── AzureSearchOptions.cs      # Strongly-typed configuration for Azure AI Search
+│   ├── DocumentsOptions.cs        # Strongly-typed configuration for PDF ingestion & chunking
 │   └── FoundryOptions.cs          # Strongly-typed configuration for Azure AI Foundry
 ├── Services/
+│   ├── AzureSearchService.cs      # Vector upload and similarity search
 │   ├── DocumentIngestionService.cs
 │   ├── DocumentService.cs         # PDF text extraction & chunking (PdfPig)
 │   ├── EmbeddingService.cs        # Text embedding generation
 │   ├── FoundryService.cs          # Azure AI Foundry client (Microsoft Entra ID auth)
 │   ├── RAGService.cs              # End-to-end RAG orchestration
-│   ├── SearchIndexService.cs      # Azure AI Search index provisioning
-│   └── VectorSearchService.cs     # Vector upload and similarity search
+│   └── SearchIndexService.cs      # Azure AI Search index provisioning
 ├── Program.cs                     # DI setup, startup indexing, OpenAPI/Swagger UI
 ├── appsettings.json               # Application configuration
 ├── SampleRAG.csproj               # .NET 10 Web API project file
@@ -116,7 +122,7 @@ flowchart LR
     subgraph Ingestion["Phase 1: Ingestion (Program.cs → DocumentIngestionService)"]
         A["PDF Files\n(Documents/)"] --> B["Extract & Chunk\nDocumentService\n(PdfPig: 1000 chars,\n200 overlap)"]
         B --> C["Generate Embeddings\nEmbeddingService\nvia FoundryService\n(text-embedding-3-small)"]
-        C --> D["Upload in Batches\nVectorSearchService\n(up to 500/batch)"]
+        C --> D["Upload in Batches\nAzureSearchService\n(default 500/batch)"]
     end
 
     S["Create Index\nSearchIndexService\n+ SearchIndexSchema"] --> E[("Azure AI Search\n(samplerag-index\nHNSW vector index)")]
@@ -124,7 +130,7 @@ flowchart LR
 
     subgraph Query["Phase 2: Retrieval & Generation (ChatController → RAGService)"]
         F["User Question\nChatController"] --> G["Embed Question\nEmbeddingService\nvia FoundryService"]
-        G --> H["Vector Search\nVectorSearchService\n(Top 5 kNN chunks)"]
+        G --> H["Vector Search\nAzureSearchService\n(Top 5 kNN chunks)"]
         E --> H
         H --> I["Build Grounded Prompt\nRAGService"]
         I --> J["Generate Answer\nFoundryService\n(gpt-4.1-nano)"]
@@ -136,14 +142,14 @@ flowchart LR
 
 1. **Index Provisioning (`SearchIndexService`)** — On startup, `Program.cs` ensures the Azure AI Search index (`samplerag-index`) exists with the schema (`id`, `documentName`, `pageNumber`, `content`, `contentVector`) and an HNSW vector profile configured for `1536`-dimensional vectors.
 2. **PDF Discovery & Text Extraction (`DocumentIngestionService` & `DocumentService`)** — Scans the configured `Documents/` folder for `*.pdf` files and extracts text page by page using **PdfPig**, skipping blank or image-only pages.
-3. **Sliding-Window Chunking (`DocumentService`)** — Splits each page's text into **1,000-character** chunks with a **200-character overlap** so context is preserved across chunk boundaries. Each `DocumentChunk` retains its `documentName` and `pageNumber` metadata.
+3. **Sliding-Window Chunking (`DocumentService`)** — Splits each page's text into **1,000-character** chunks with a **200-character overlap** by default (configurable via `Documents:ChunkSize` and `Documents:ChunkOverlap`) so context is preserved across chunk boundaries. Each `DocumentChunk` retains its `documentName` and `pageNumber` metadata.
 4. **Embedding Generation (`EmbeddingService` → Microsoft Foundry)** — Sends each chunk's text to the deployed `text-embedding-3-small` model (authenticated via Microsoft Entra ID) to produce a `1536`-dimensional vector.
-5. **Batch Upload (`VectorSearchService` → Azure AI Search)** — Uploads the chunks and their vectors to Azure AI Search in batches of up to **500 documents**.
+5. **Batch Upload (`AzureSearchService` → Azure AI Search)** — Uploads the chunks and their vectors to Azure AI Search in batches of up to **500 documents** by default (configurable via `AzureSearch:UploadBatchSize`, max `1,000`).
 
 ### Phase 2: Retrieval & Grounded Generation (`POST /api/chat/ask`)
 
 1. **Question Embedding (`RAGService` → `EmbeddingService`)** — Converts the incoming user `question` into a `1536`-dimensional query vector using the same `text-embedding-3-small` model so it lives in the same vector space as the indexed chunks.
-2. **Vector Similarity Search (`VectorSearchService` → Azure AI Search)** — Runs a k-nearest-neighbor (kNN) vector search against `contentVector` to retrieve the **top 5** most semantically relevant chunks (`topK = 5`). If no chunks are found, the API immediately returns a fallback message.
+2. **Vector Similarity Search (`AzureSearchService` → Azure AI Search)** — Runs a k-nearest-neighbor (kNN) vector search against `contentVector` to retrieve the **top 5** most semantically relevant chunks (`topK = 5`). If no chunks are found, the API immediately returns a fallback message.
 3. **Prompt Augmentation (`RAGService`)** — Formats the retrieved chunks (labeled with their `Source` file name and `Page` number) into a context block and pairs it with a strict system prompt that instructs the model to:
    - Answer using *only* the provided context.
    - Avoid inventing facts or making unsupported assumptions.
@@ -176,7 +182,9 @@ Update `appsettings.json` (or use `appsettings.Development.json` / .NET User Sec
 ```json
 {
   "Documents": {
-    "FolderPath": "Documents"
+    "FolderPath": "Documents",
+    "ChunkSize": 1000,
+    "ChunkOverlap": 200
   },
   "Foundry": {
     "Endpoint": "https://<your-foundry-resource>.openai.azure.com/openai/v1",
@@ -187,7 +195,8 @@ Update `appsettings.json` (or use `appsettings.Development.json` / .NET User Sec
   "AzureSearch": {
     "Endpoint": "https://<your-search-service>.search.windows.net",
     "ApiKey": "<your-azure-search-admin-api-key>",
-    "IndexName": "<your-index-name>"
+    "IndexName": "<your-index-name>",
+    "UploadBatchSize": 500
   }
 }
 ```
