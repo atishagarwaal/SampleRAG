@@ -50,6 +50,7 @@ public class DocumentService
             }
         }
 
+        // PdfPig reads the stream synchronously. Wrap the result so callers can stay async.
         return Task.FromResult(chunks);
     }
 
@@ -60,6 +61,8 @@ public class DocumentService
     private static List<string> SplitText(string text, int chunkSize, int overlap)
     {
         var chunks = new List<string>();
+
+        // Step is smaller than the window so the next chunk repeats the tail of this one.
         int stepSize = chunkSize - overlap;
         int start = 0;
 

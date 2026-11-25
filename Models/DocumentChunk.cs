@@ -7,6 +7,8 @@ public class DocumentChunk
 {
     /// <summary>
     /// Unique identifier for this chunk.
+    /// A new value is assigned each time a chunk is created, so ingesting the same file again
+    /// uploads a new set of documents.
     /// </summary>
     public string Id { get; set; } = Guid.NewGuid().ToString();
 

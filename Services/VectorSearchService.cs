@@ -1,4 +1,3 @@
-
 using Azure;
 using Azure.Search.Documents;
 using Azure.Search.Documents.Models;
@@ -6,8 +5,16 @@ using SampleRAG.Models;
 
 namespace SampleRAG.Services;
 
+/// <summary>
+/// Uploads document chunks to Azure AI Search and retrieves the nearest chunks for a query vector.
+/// </summary>
 public class VectorSearchService
 {
+    /// <summary>
+    /// Stay under the service limit of 1000 documents per indexing request.
+    /// </summary>
+    private const int UploadBatchSize = 500;
+
     private readonly SearchClient _searchClient;
 
     public VectorSearchService(IConfiguration configuration)
@@ -30,29 +37,20 @@ public class VectorSearchService
             new AzureKeyCredential(apiKey));
     }
 
-    // Upload document chunks and their embedding vectors.
+    /// <summary>
+    /// Uploads chunks and their embedding vectors, splitting the work into fixed-size batches.
+    /// </summary>
     public async Task UploadChunksAsync(
         IEnumerable<(DocumentChunk Chunk, float[] Vector)> items,
         CancellationToken cancellationToken = default)
     {
-        const int batchSize = 500;
-
-        var batch = new List<SearchDocument>(batchSize);
+        var batch = new List<SearchDocument>(UploadBatchSize);
 
         foreach (var item in items)
         {
-            var document = new SearchDocument
-            {
-                ["id"] = item.Chunk.Id,
-                ["documentName"] = item.Chunk.DocumentName,
-                ["pageNumber"] = item.Chunk.PageNumber,
-                ["content"] = item.Chunk.Content,
-                ["contentVector"] = item.Vector,
-            };
+            batch.Add(ToSearchDocument(item.Chunk, item.Vector));
 
-            batch.Add(document);
-
-            if (batch.Count >= batchSize)
+            if (batch.Count >= UploadBatchSize)
             {
                 await UploadBatchAsync(batch, cancellationToken);
                 batch.Clear();
@@ -65,25 +63,9 @@ public class VectorSearchService
         }
     }
 
-    private async Task UploadBatchAsync(
-        List<SearchDocument> documents,
-        CancellationToken cancellationToken)
-    {
-        var options = new IndexDocumentsOptions
-        {
-            ThrowOnAnyError = true
-        };
-
-        var response = await _searchClient.IndexDocumentsAsync(
-            IndexDocumentsBatch.Upload(documents),
-            options,
-            cancellationToken);
-
-        // Ensure the indexing operation completed successfully.
-        _ = response.Value;
-    }
-
-    // Retrieve the most relevant chunks using vector similarity.
+    /// <summary>
+    /// Returns the chunks whose embeddings are closest to <paramref name="queryVector"/>.
+    /// </summary>
     public async Task<List<DocumentChunk>> SearchAsync(
         float[] queryVector,
         int topK = 5,
@@ -91,23 +73,23 @@ public class VectorSearchService
     {
         var options = new SearchOptions
         {
+            // Cap the payload at the same count the vector query asks for.
             Size = topK
         };
 
-        options.Select.Add("id");
-        options.Select.Add("documentName");
-        options.Select.Add("pageNumber");
-        options.Select.Add("content");
+        options.Select.Add(SearchIndexSchema.Id);
+        options.Select.Add(SearchIndexSchema.DocumentName);
+        options.Select.Add(SearchIndexSchema.PageNumber);
+        options.Select.Add(SearchIndexSchema.Content);
 
         options.VectorSearch = new VectorSearchOptions
         {
             Queries =
             {
-                new VectorizedQuery(
-                    new ReadOnlyMemory<float>(queryVector))
+                new VectorizedQuery(new ReadOnlyMemory<float>(queryVector))
                 {
                     KNearestNeighborsCount = topK,
-                    Fields = { "contentVector" }
+                    Fields = { SearchIndexSchema.ContentVector }
                 }
             }
         };
@@ -120,18 +102,49 @@ public class VectorSearchService
 
         await foreach (var result in response.Value.GetResultsAsync())
         {
-            var document = result.Document;
-
-            chunks.Add(new DocumentChunk
-            {
-                Id = document["id"]?.ToString() ?? string.Empty,
-                DocumentName =
-                    document["documentName"]?.ToString() ?? string.Empty,
-                PageNumber = Convert.ToInt32(document["pageNumber"]),
-                Content = document["content"]?.ToString() ?? string.Empty
-            });
+            chunks.Add(ToDocumentChunk(result.Document));
         }
 
         return chunks;
+    }
+
+    private static SearchDocument ToSearchDocument(DocumentChunk chunk, float[] vector)
+    {
+        return new SearchDocument
+        {
+            [SearchIndexSchema.Id] = chunk.Id,
+            [SearchIndexSchema.DocumentName] = chunk.DocumentName,
+            [SearchIndexSchema.PageNumber] = chunk.PageNumber,
+            [SearchIndexSchema.Content] = chunk.Content,
+            [SearchIndexSchema.ContentVector] = vector,
+        };
+    }
+
+    private static DocumentChunk ToDocumentChunk(SearchDocument document)
+    {
+        return new DocumentChunk
+        {
+            Id = document[SearchIndexSchema.Id]?.ToString() ?? string.Empty,
+            DocumentName = document[SearchIndexSchema.DocumentName]?.ToString() ?? string.Empty,
+            // Numeric index fields may be returned as Int32 or Int64.
+            PageNumber = Convert.ToInt32(document[SearchIndexSchema.PageNumber]),
+            Content = document[SearchIndexSchema.Content]?.ToString() ?? string.Empty
+        };
+    }
+
+    private async Task UploadBatchAsync(
+        List<SearchDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        // Fail the batch when any document is rejected instead of reporting a partial success.
+        var options = new IndexDocumentsOptions
+        {
+            ThrowOnAnyError = true
+        };
+
+        await _searchClient.IndexDocumentsAsync(
+            IndexDocumentsBatch.Upload(documents),
+            options,
+            cancellationToken);
     }
 }

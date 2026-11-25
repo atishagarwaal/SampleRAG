@@ -42,7 +42,7 @@ public class FoundryService
         var credential = new DefaultAzureCredential(credentialOptions);
         var tokenPolicy = new BearerTokenPolicy(credential, AzureAiScope);
 
-        // Create the Foundry OpenAI-compatible root client
+        // The endpoint-based OpenAI client is still marked experimental (OPENAI001).
 #pragma warning disable OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
         var openAIClient = new OpenAIClient(
             authenticationPolicy: tokenPolicy,
