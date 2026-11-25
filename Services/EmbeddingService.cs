@@ -1,28 +1,29 @@
-﻿using OpenAI.Embeddings;
-
-namespace SampleRAG.Services;
+﻿namespace SampleRAG.Services;
 
 /// <summary>
-/// Turns text into a vector using the Foundry embedding deployment.
-/// The same client is used for document chunks and for user questions.
+/// Turns text into vectors using the Foundry embedding deployment.
 /// </summary>
-public class EmbeddingService
+public class EmbeddingService(FoundryService foundryService)
 {
-    private readonly EmbeddingClient _embeddingClient;
-
-    public EmbeddingService(EmbeddingClient embeddingClient)
+    public async Task<float[]> GenerateEmbeddingAsync(
+        string text,
+        CancellationToken cancellationToken = default)
     {
-        _embeddingClient = embeddingClient;
+        var response = await foundryService.Embeddings.GenerateEmbeddingAsync(
+            text,
+            cancellationToken: cancellationToken);
+
+        return response.Value.ToFloats().ToArray();
     }
 
-    /// <summary>
-    /// Returns the embedding as a float array that Azure AI Search can store and query.
-    /// </summary>
-    public async Task<float[]> GenerateEmbeddingAsync(string text)
+    public async Task<List<float[]>> GenerateEmbeddingsAsync(
+        IEnumerable<string> texts,
+        CancellationToken cancellationToken = default)
     {
-        var response = await _embeddingClient.GenerateEmbeddingAsync(text);
+        var response = await foundryService.Embeddings.GenerateEmbeddingsAsync(
+            texts,
+            cancellationToken: cancellationToken);
 
-        // The client exposes the vector as read-only memory. Copy it so callers can keep the values.
-        return response.Value.ToFloats().ToArray();
+        return response.Value.Select(e => e.ToFloats().ToArray()).ToList();
     }
 }

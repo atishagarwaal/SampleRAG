@@ -1,103 +1,59 @@
 using Azure;
 using Azure.Search.Documents.Indexes;
 using Azure.Search.Documents.Indexes.Models;
+using Microsoft.Extensions.Options;
+using SampleRAG.Options;
 
 namespace SampleRAG.Services;
 
 /// <summary>
 /// Creates the Azure AI Search index that stores document chunks and their embeddings.
 /// </summary>
-public class SearchIndexService
+public class SearchIndexService(IOptions<AzureSearchOptions> options)
 {
-    private readonly SearchIndexClient _indexClient;
-    private readonly string _indexName;
+    private readonly SearchIndexClient _indexClient = new(
+        new Uri(options.Value.Endpoint),
+        new AzureKeyCredential(options.Value.ApiKey));
 
-    public SearchIndexService(IConfiguration configuration)
-    {
-        var endpoint = configuration["AzureSearch:Endpoint"]
-            ?? throw new InvalidOperationException(
-                "Azure Search endpoint is missing.");
-
-        var apiKey = configuration["AzureSearch:ApiKey"]
-            ?? throw new InvalidOperationException(
-                "Azure Search API key is missing.");
-
-        _indexName = configuration["AzureSearch:IndexName"]
-            ?? throw new InvalidOperationException(
-                "Azure Search index name is missing.");
-
-        _indexClient = new SearchIndexClient(
-            new Uri(endpoint),
-            new AzureKeyCredential(apiKey));
-    }
+    private readonly string _indexName = options.Value.IndexName;
 
     /// <summary>
-    /// Creates the vector index when it is missing.
-    /// An index that already exists is left as-is, including its fields.
+    /// Creates the vector index when it is missing. Existing indexes are left as-is.
     /// </summary>
-    public async Task CreateIndexIfNotExistsAsync()
+    public async Task CreateIndexIfNotExistsAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            await _indexClient.GetIndexAsync(_indexName);
+            await _indexClient.GetIndexAsync(_indexName, cancellationToken);
             return;
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
-            // 404 means the index has not been created yet.
+            // Index does not exist yet.
         }
 
         var index = new SearchIndex(_indexName)
         {
             Fields =
             {
-                new SimpleField(SearchIndexSchema.Id, SearchFieldDataType.String)
-                {
-                    IsKey = true,
-                    IsFilterable = true
-                },
-
-                new SearchableField(SearchIndexSchema.DocumentName)
-                {
-                    IsFilterable = true
-                },
-
-                new SimpleField(
-                    SearchIndexSchema.PageNumber,
-                    SearchFieldDataType.Int32)
-                {
-                    IsFilterable = true
-                },
-
+                new SimpleField(SearchIndexSchema.Id, SearchFieldDataType.String) { IsKey = true, IsFilterable = true },
+                new SearchableField(SearchIndexSchema.DocumentName) { IsFilterable = true },
+                new SimpleField(SearchIndexSchema.PageNumber, SearchFieldDataType.Int32) { IsFilterable = true },
                 new SearchableField(SearchIndexSchema.Content),
-
-                new SearchField(
-                    SearchIndexSchema.ContentVector,
-                    SearchFieldDataType.Collection(SearchFieldDataType.Single))
+                new SearchField(SearchIndexSchema.ContentVector, SearchFieldDataType.Collection(SearchFieldDataType.Single))
                 {
                     IsSearchable = true,
                     VectorSearchDimensions = SearchIndexSchema.EmbeddingDimensions,
                     VectorSearchProfileName = SearchIndexSchema.VectorProfile
                 }
             },
-
-            // The vector field names the profile; the profile names the algorithm.
             VectorSearch = new VectorSearch
             {
-                Algorithms =
-                {
-                    new HnswAlgorithmConfiguration(SearchIndexSchema.HnswAlgorithm)
-                },
-
-                Profiles =
-                {
-                    new VectorSearchProfile(
-                        SearchIndexSchema.VectorProfile,
-                        SearchIndexSchema.HnswAlgorithm)
-                }
+                Algorithms = { new HnswAlgorithmConfiguration(SearchIndexSchema.HnswAlgorithm) },
+                Profiles = { new VectorSearchProfile(SearchIndexSchema.VectorProfile, SearchIndexSchema.HnswAlgorithm) }
             }
         };
 
-        await _indexClient.CreateIndexAsync(index);
+        await _indexClient.CreateIndexAsync(index, cancellationToken);
     }
 }
